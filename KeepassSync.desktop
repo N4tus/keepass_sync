@@ -1,9 +1,9 @@
 [Desktop Entry]
-Type = Application
-Name = Keepass Sync
-GenericName = password-manager synchronization
-GenericName[de] = Passwortmanager Synchronisation
-Comment = Syncronize Keepass databse with our NAS.
-Comment[de] = Synchronisiert die Keepass-Datenbank mit unserem NAS.
-Icon = KeepassSync.png
-Exec = keepass_sync.sh
+Type=Application
+Name=Keepass Sync
+GenericName=password-manager synchronization
+GenericName[de]=Passwortmanager Synchronisation
+Comment=Syncronize Keepass databse with our NAS.
+Comment[de]=Synchronisiert die Keepass-Datenbank mit unserem NAS.
+Icon=KeepassSync
+Exec=keepass_sync.sh
