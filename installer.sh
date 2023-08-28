@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 
-usage=$'usage:\n\tinstall.sh install <nas_user> <gui>:(kde|gnome) [<db_name>:database]\n\tinstall.sh uninstall'
-
 bin="/usr/local/bin"
 lib="/usr/local/lib/KeepassSync"
 local_share="$HOME/.local/share"
 icons="$local_share/icons/hicolor"
+
+if [ -e "./lang/${LANG:0:2}.sh" ]; then 
+  source "./lang/${LANG:0:2}.sh"
+else
+  echo "translation file ./local/${LANG:0:2}.sh is missing"
+  source "./lang/en.sh"
+fi
 
 function install {
 
@@ -66,12 +71,18 @@ function uninstall {
 	done
 }
 
+function setpwd {
+  secret-tool store "NAS_KEEPASS" "$USER" --label "NAS SFTP Keepass access"
+}
+
 case $1 in
   "install")
     install $*;;
   "uninstall")
     uninstall;;
+  "setpwd")
+    setpwd;;
   *)
-    echo "$usage";;
+    echo "$INSTALLER_USAGE";;
 esac
 

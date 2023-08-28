@@ -10,3 +10,4 @@ UPLOAD_FAILE="Could not upload merged version."
 KEEPASS_INIT="Creating a new local database. Confirm with password."
 INIT_CANCELED="Creation canceled by user."
 INIT_FAILED="Creation failed. Was the password incorrect?"
+INSTALLER_USAGE=$'usage:\n\tinstall.sh install <nas_user> <gui>:(kde|gnome) [<db_name>:database]\n\tinstall.sh uninstall\n\tinstall.sh setpwd'

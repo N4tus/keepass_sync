@@ -10,3 +10,4 @@ UPLOAD_FAILE="Fehler beim Hochladen der Datenbank."
 KEEPASS_INIT="Erstellen eine neue lokale Datenbank mit Passwort bestätigen."
 INIT_CANCELED="Neuerstellung durch den Benutzer abgebrochen."
 INIT_FAILED="Neuerstellung gescheitert. Was das Password falsch?"
+INSTALLER_USAGE=$'Benutzung:\n\tinstall.sh install <nas_benutzer> <gui>:(kde|gnome) [<db_name>:database]\n\tinstall.sh uninstall\n\tinstall.sh setpwd'
