@@ -26,53 +26,47 @@ local_hash="$HOME/kdbx/$kdbx_name.hash"
 
 err_msg=""
 
-function backup_local_remote {
-  if [ -e "$local_remote_db" ]; then
-    if [ -e "$HOME/kdbx/$kdbx_name.remote-5.kdbx" ]; then
-      rm "$HOME/kdbx/$kdbx_name.remote-5.kdbx"
-    fi
-    for i in {4..1}; do
-      if [ -e "$HOME/kdbx/$kdbx_name.remote-$i.kdbx" ]; then
-        mv "$HOME/kdbx/$kdbx_name.remote-$i.kdbx" "$HOME/kdbx/$kdbx_name.remote-$(($i+1)).kdbx"
-      fi
+function backup {
+  if [ -f "$2" ]; then
+    [ -f "$HOME/kdbx/$kdbx_name.remote-10.kdbx" ] && rm "$HOME/kdbx/$kdbx_name.remote-10.kdbx" 
+    for i in {9..1}; do
+      [ -f "$HOME/kdbx/$kdbx_name.remote-$i.kdbx" ] && mv "$HOME/kdbx/$kdbx_name.remote-$i.kdbx" "$HOME/kdbx/$kdbx_name.remote-$(($i+1)).kdbx"
     done
-    mv "$local_remote_db" "$HOME/kdbx/$kdbx_name.remote-1.kdbx"
-  fi
-}
-
-function check_need_backup {
-  if [ -e "$HOME/kdbx/$kdbx_name.remote-1.kdbx" ]; then
-    cmp --silent -- "$local_remote_db" "$HOME/kdbx/$kdbx_name.remote-1.kdbx"
-    if [ $? -ne 0 ]; then
-      return 0
-    else
-      return 1
-    fi
-  else
-    return 0
-  fi
-}
-
-function check_and_backup_local_remote {
-  check_need_backup
-  if [ $? -eq 0 ]; then
-    echo "need backup, backing up local remote."
-    backup_local_remote
-  else
-    echo "no need backup, removing local remote."
-    rm "$local_remote_db"
+    case $1 in
+      "mv") mv "$2" "$HOME/kdbx/$kdbx_name.remote-1.kdbx";;
+      "cp") cp "$2" "$HOME/kdbx/$kdbx_name.remote-1.kdbx";;
+    esac
   fi
 }
 
 function ask_pwd {
   case $gui in
     "kde")
-      echo "$(kdialog --password "$1" --title "Keepass Sync")"
-      return $?;;
+      pwd="$(kdialog --password "$1" --title "Keepass Sync")" && [ -n "$pwd" ] && echo "$pwd";;
     "gnome")
-      echo "$(zenity --password --title="$1")"
-      return $?;;
+      pwd="$(zenity --password --title="$1")" && [ -n "$pwd" ] && echo "$pwd";;
   esac
+}
+
+function rm_local_remote {
+  if [ -e "$local_remote_db" ]; then
+    echo "remove local remote."
+    rm "$local_remote_db"
+  fi
+}
+
+function upload_local {
+  echo "uploding local."
+  SSH_ASKPASS_REQUIRE="" LFTP_PASSWORD="$nas_pwd" lftp --env-password -p 23 "sftp://$nas_user@greifsvpn.ddnss.de" -e "put -e $local_db -o $remote_db; bye"
+  upload_failed=$?
+  if [ $upload_failed -ne 0 ]; then
+    echo "upload failed."
+    err_msg="$UPLOAD_FAILED"
+    rm_local_remote
+  fi
+  echo "upload successful. re-generate hash."
+  cat "$local_db" | sha256sum -b > "$local_hash"
+  return $upload_failed
 }
 
 function main {
@@ -85,127 +79,85 @@ function main {
   if [ $? -ne 0 ]; then
     err_msg="$ERR_FETCHING_REMOTE"
     echo "download of remote failed."
-    if [ -e "$local_remote_db" ]; then
-      echo "a local remote file exists after failed download. Deleting it."
-      rm "$local_remote_db"
-    fi
+    rm_local_remote
     return 1
   fi
-  echo "comparing local remote to local."
-  cmp --silent -- "$local_db" "$local_remote_db"
-  if [ $? -eq 0 ]; then
-    echo "remote is equal, nothing to do."
-    if [ -e "$local_remote_db" ]; then
-      echo "remove local remote."
-      rm "$local_remote_db"
-    fi
-    return 0
-  fi
 
-  echo "check if local is modified since last run"
-  if [ -e "$local_db" ]; then
-    sha256sum -c "$local_hash"
-    fast_forward=$?
-  else
-    echo "database does not exists yet. Creating it."
-    kp_pwd=$(ask_pwd "$KEEPASS_INIT")
-    if [ $? -ne 0 ]; then
-      echo "initiazation canceled by user. remove local remote."
-      err_msg="$INIT_CANCELED"
-      rm "$local_remote_db"
-      return 0
-    fi
-    echo "$kp_pwd" | keepassxc-cli open "$local_remote_db"
-    if [ $? -ne 0 ]; then
-      echo "password check failed. Maybe Wrong password? removing local remote"
-      err_msg="$INIT_FAILED"
-      rm "$local_remote_db"
-      return 1
-    fi
-    echo "moving local remote over local."
-    mv "$local_remote_db" "$local_db"
+  if [ ! -f "$local_db" ]; then
+    echo "database does not exist."
+    cp "$local_remote_db" "$local_db"
 
+    backup mv "$local_remote_db"
 
     echo "generating hash for local"
-    sha256sum -b "$local_db" > "$local_hash"
+    cat "$local_db" | sha256sum -b > "$local_hash"
     return 0
   fi
 
-  if [ $fast_forward -eq 0 ]; then
-    gui_msg="$KEEPASS_FAST_FORWARD"
-  else
-    gui_msg="$KEEPASS_MERGE"
+  cat "$local_db" | sha256sum -c "$local_hash" --status
+  local_db_changed=$?
+  cat "$local_remote_db" | sha256sum -c "$local_hash" --status
+  remote_db_changed=$?
+
+  if [ $local_db_changed -eq 0 -a $remote_db_changed -eq 0 ]; then
+    # nothing todo
+    echo "neither local nor remote changed. nothing todo."
+    rm_local_remote
+    return 0
   fi
-  
-  kp_pwd=$(ask_pwd "$gui_msg")
-  
+  if [ $local_db_changed -ne 0 -a $remote_db_changed -eq 0 ]; then
+    # local changed, but not remote: just upload local
+
+    upload_local || return $?
+
+    echo "backing up local."
+    backup cp "$local_db"
+    rm_local_remote
+    
+    return 0
+  fi
+  if [ $local_db_changed -eq 0 -a $remote_db_changed -ne 0 ]; then
+    # remote changed, but not local: just override local
+
+    echo "overriding local"
+    cp "$local_remote_db" "$local_db"
+
+    echo "re-generate hash."
+    cat "$local_db" | sha256sum -b > "$local_hash"
+
+    echo "backing up local remote."
+    backup mv "$local_remote_db"
+    
+    return 0
+  fi
+
+  # local and remote changed: merge and upload merged db
+
+  echo "asking for password for merge."
+  kp_pwd=$(ask_pwd "$KEEPASS_MERGE")
   if [ $? -ne 0 ]; then
     echo "merge canceled by user."
     err_msg="$MERGE_CANCELED"
-
-    check_and_backup_local_remote
-        
-    return 0
+    rm_local_remote
+    return 1
   fi
 
-  if [ $fast_forward -eq 0 ]; then
-    echo "no modifications since last time."
-    # database is same as last sync. So we can just fast forward it.
-    
-    # check password
-    echo "checking password."
-    echo "$kp_pwd" | keepassxc-cli open "$local_db"
-    if [ $? -ne 0 ]; then
-      echo "wrong password."
-      err_msg="$WRONG_PASSWORD"
-      check_and_backup_local_remote
-      return 1
-    fi
-
-    echo "check succeeded"
-    check_need_backup
-    if [ $? -eq 0 ]; then
-      echo "need backup, copy local remot over local then backup local remote."
-      cp "$local_remote_db" "$local_db"
-      backup_local_remote
-    else
-      echo "no need backup, move local remote over local."
-      mv "$local_remote_db" "$local_db"
-    fi
-    
-    echo "generating hash for new local"
-    sha256sum -b "$local_db" > "$local_hash"
-    return 0
-
-  
-  else
-    # database was modified since last sync, so we merge
-    echo "database modified since last time, merging local and local remote."
-    
-    echo "$kp_pwd" | keepassxc-cli merge -s "$local_db" "$local_remote_db"
-  
-    if [ $? -ne 0 ]; then
-      echo "merge failed, probably wrong password, remove local hash forcing merge for next time."
-      err_msg="$MERGE_FAILED"
-      rm "$local_hash"
-      check_and_backup_local_remote
-      return 1
-    fi
-
-    echo "merge succeded, uploding local."
-    SSH_ASKPASS_REQUIRE="" LFTP_PASSWORD="$nas_pwd" lftp --env-password -p 23 "sftp://$nas_user@greifsvpn.ddnss.de" -e "put -e $local_db -o $remote_db; bye"
-    if [ $? -ne 0 ]; then
-      echo "upload failed. do not backup, so that next sync does detect a change."
-      err_msg="$UPLOAD_FAILE"
-      return 1
-    fi
-
-    echo "upload succeded, generating new hash for local."
-    sha256sum -b "$local_db" > "$local_hash"
-    check_and_backup_local_remote
-
-    return 0
+  echo "merging databases."
+  echo "$kp_pwd" | keepassxc-cli merge -s "$local_db" "$local_remote_db"
+  if [ $? -ne 0 ]; then
+    echo "merge failed."
+    err_msg="$MERGE_FAILED"
+    rm_local_remote
+    return 1
   fi
+
+  upload_local  || return $?
+  
+  echo "backing up local and local remote."
+  backup cp "$local_db"
+  backup mv "$local_remote_db"
+
+  return 0
 }
 
 main
