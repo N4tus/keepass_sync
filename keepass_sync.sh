@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 
-cd /usr/local/lib/KeepassSync
+quite=1
+keep_dir=1
+
+[ "$1" = q -o "$2" = q ] && quite=0
+[ "$1" = kd -o "$2" = kd ] && keep_dir=0
+
+[ $keep_dir -ne 0 ] && cd /usr/local/lib/KeepassSync
 
 MISSING_CONFIG="Invalid installation: Could not find configuration and translations files."
 
@@ -91,6 +97,9 @@ function main {
 
     echo "generating hash for local"
     cat "$local_db" | sha256sum -b > "$local_hash"
+
+    err_msg="$DATABASE_CREATED"
+    
     return 0
   fi
 
@@ -103,6 +112,9 @@ function main {
     # nothing todo
     echo "neither local nor remote changed. nothing todo."
     rm_local_remote
+
+    err_msg="$NOTHING_TODO"
+    
     return 0
   fi
   if [ $local_db_changed -ne 0 -a $remote_db_changed -eq 0 ]; then
@@ -113,6 +125,8 @@ function main {
     echo "backing up local."
     backup cp "$local_db"
     rm_local_remote
+
+    err_meg="$LOCAL_CHANGED"
     
     return 0
   fi
@@ -127,6 +141,8 @@ function main {
 
     echo "backing up local remote."
     backup mv "$local_remote_db"
+    
+    err_msg="$REMOTE_CHANGED"
     
     return 0
   fi
@@ -157,14 +173,16 @@ function main {
   backup cp "$local_db"
   backup mv "$local_remote_db"
 
+  err_msg="$LOCAL_AND_REMOTE_CHANGED"
+
   return 0
 }
 
 main
 
 if [ $? -eq 0 ]; then
-  if [ -n "$err_msg" ]; then
-    notify-send 'Keepass Sync' "$err_msg" --icon=dialog-information -a "Keepass Sync" -t 2000
+  if [ -n "$err_msg" -a $quite -ne 0 ]; then
+    notify-send 'Keepass Sync' "$err_msg" --icon=dialog-information -a "Keepass Sync" -t 5000
   fi
 else
   notify-send 'Keepass Sync Error' "$err_msg" --icon=dialog-error -a "Keepass Sync" -u critical
